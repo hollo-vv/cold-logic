@@ -642,7 +642,7 @@ function defaults(){
   ];
   return {
     v:1,first:iso(new Date()),name:'',pic:null,xp:0,vol:.5,focusMin:25,
-    water:{},waterGoal:3000,notes:{},mat:{items:[],iq:[]},bg:{},custom:{},pomo:{focus:25,short:5,long:15,every:4,tick:true,cycle:0,done:{},bar:'wave'},notify:false,haptic:{on:true,level:'medium'},sfx:{on:true,vol:.7},alert:{on:false,lead:5,habit:'chime',wk:'digital',vol:.8},ovr:{},restSec:90,classLead:30,_u:0,
+    water:{},waterGoal:3000,notes:{},mat:{items:[],iq:[]},bg:{},custom:{},pomo:{focus:25,short:5,long:15,every:4,tick:true,cycle:0,done:{},bar:'wave'},notify:false,haptic:{on:true,level:'medium'},sfx:{on:true,vol:.7},alert:{on:false,lead:5,habit:'chime',wk:'digital',vol:.8},ovr:{},restSec:90,classLead:30,musicLink:'',_u:0,
     done:{},hist:{},extras:{},fuel:{},fuelGoal:{kcal:2500,protein:120},
     courses:[
       {c:'26SC1203E',n:'Data Structures and Algorithms (DSA)'},
@@ -1066,6 +1066,7 @@ function vEdit(){
      ${sf.on?`<div class="row2" style="margin-top:14px"><span class="sm mu">Volume</span><input type="range" min="0.1" max="1" step="0.05" value="${sf.vol}" data-f="sfxvol" aria-label="Sound effects volume"><button class="btn sm ghost" data-act="sfxtest">Test</button></div>`:''}</section>`;
     h+=alertCard();
     h+=notifCard();
+    h+=musicCard();
   }
   if(etab==='tt'){
     h+=`<div class="seg">${[1,2,3,4,5,6].map(d=>`<button class="${eday===d?'on':''}" data-act="eday" data-d="${d}">${D3[d]}</button>`).join('')}</div>`;
@@ -1105,6 +1106,118 @@ function alertCard(){
    <div class="fld full"><label>Volume</label><input type="range" min="0.1" max="1" step="0.05" value="${a.vol}" data-f="alertvol" aria-label="Alert volume"></div></div>
    <div class="row2" style="margin-top:14px;flex-wrap:wrap"><label class="btn sm" style="cursor:pointer">${ic('plus')}Use my own sound<input type="file" accept="audio/*" data-f="alertfile" hidden></label>${AlertSnd.hasCustom?'<button class="btn sm ghost" data-act="alertrm">Remove my sound</button>':''}</div>
    <p class="sm mu" style="margin-top:10px">Alerts play while the app is open or running in the background. Phones can pause closed apps, and the system notification itself always uses the phone's own sound.</p>`:''}</section>`;
+}
+/* ---------- music: feed the ring visualizer from your music ---------- */
+const Music={mode:'off',el:null,src:null,gain:null,list:[],idx:0,stream:null,ssrc:null,sgain:null,playing:false,
+  prep(){const a=ac();if(!a)return false;Viz.tap();if(!Viz.an)return false;return true},
+  stopLive(){
+    try{if(this.stream)this.stream.getTracks().forEach(t=>{t.onended=null;t.stop()})}catch(e){}
+    try{this.ssrc&&this.ssrc.disconnect();this.sgain&&this.sgain.disconnect()}catch(e){}
+    this.stream=this.ssrc=this.sgain=null;
+  },
+  stop(){
+    if(this.el){try{this.el.pause()}catch(e){}}
+    this.playing=false;this.stopLive();this.mode='off';
+    try{if('mediaSession' in navigator)navigator.mediaSession.playbackState='none'}catch(e){}
+  },
+  /* your own audio files */
+  files(fl){
+    const arr=[...(fl||[])].filter(f=>/^audio\//.test(f.type)||/\.(mp3|m4a|aac|wav|ogg|opus|flac|webm)$/i.test(f.name));
+    if(!arr.length){toast('Pick audio files (mp3, m4a, wav, ogg, flac)');return}
+    this.list.forEach(t=>{try{URL.revokeObjectURL(t.url)}catch(e){}});
+    this.list=arr.map(f=>({name:f.name.replace(/\.[^.]+$/,''),url:URL.createObjectURL(f)}));
+    this.idx=0;this.load(true);
+  },
+  ensureEl(){
+    if(this.el)return true;
+    if(!this.prep())return false;
+    const el=new Audio();el.preload='auto';el.crossOrigin='anonymous';
+    el.addEventListener('ended',()=>this.next(true));
+    el.addEventListener('play',()=>{this.playing=true;this.ui()});
+    el.addEventListener('pause',()=>{this.playing=false;this.ui()});
+    this.el=el;
+    this.src=AC.createMediaElementSource(el);this.gain=AC.createGain();this.gain.gain.value=1;
+    this.src.connect(this.gain);this.gain.connect(AC.destination);this.gain.connect(Viz.an);
+    try{if('mediaSession' in navigator){const m=navigator.mediaSession;
+      m.setActionHandler('play',()=>this.toggle());m.setActionHandler('pause',()=>this.toggle());
+      m.setActionHandler('nexttrack',()=>this.next());m.setActionHandler('previoustrack',()=>this.prev())}}catch(e){}
+    return true;
+  },
+  load(autoplay){
+    this.stopLive();
+    if(!this.ensureEl())return;
+    const t=this.list[this.idx];if(!t)return;
+    this.mode='files';this.el.src=t.url;
+    try{if('mediaSession' in navigator)navigator.mediaSession.metadata=new MediaMetadata({title:t.name,artist:'COLD LOGIC'})}catch(e){}
+    if(autoplay)this.el.play().catch(()=>toast('Tap play to start'));
+    this.ui();
+  },
+  toggle(){
+    if(this.mode!=='files'||!this.el)return;
+    ac();
+    if(this.el.paused)this.el.play().catch(()=>{});else this.el.pause();
+  },
+  next(auto){if(!this.list.length)return;if(auto&&this.idx>=this.list.length-1){this.idx=0;this.load(false);return}this.idx=(this.idx+1)%this.list.length;this.load(true)},
+  prev(){if(!this.list.length)return;if(this.el&&this.el.currentTime>3){this.el.currentTime=0;return}this.idx=(this.idx-1+this.list.length)%this.list.length;this.load(true)},
+  /* any music playing near the phone or laptop, from any app (LastWave, Spotify, ...) */
+  async mic(){
+    if(this.mode==='mic'){this.stop();this.ui();return}
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('Microphone is not available here');return}
+    if(!this.prep()){toast('Audio is not available');return}
+    try{
+      if(this.el)this.el.pause();this.stopLive();
+      const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      this.stream=st;this.ssrc=AC.createMediaStreamSource(st);this.sgain=AC.createGain();this.sgain.gain.value=3;
+      this.ssrc.connect(this.sgain);this.sgain.connect(Viz.an);   /* analyser only, never to the speaker (no echo) */
+      st.getAudioTracks()[0].onended=()=>{this.stop();this.ui()};
+      this.mode='mic';toast('Listening. Play music in any app.');
+    }catch(e){toast(e&&e.name==='NotAllowedError'?'Microphone permission was denied':'Could not start the microphone')}
+    this.ui();
+  },
+  /* desktop: share a browser tab (or whole screen) with its audio */
+  async tab(){
+    if(this.mode==='tab'){this.stop();this.ui();return}
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){toast('Not supported on this device');return}
+    if(!this.prep()){toast('Audio is not available');return}
+    try{
+      if(this.el)this.el.pause();this.stopLive();
+      const st=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+      st.getVideoTracks().forEach(t=>t.stop());
+      if(!st.getAudioTracks().length){st.getTracks().forEach(t=>t.stop());toast('No audio was shared. Tick "Share tab audio".');return}
+      this.stream=st;this.ssrc=AC.createMediaStreamSource(new MediaStream(st.getAudioTracks()));
+      this.ssrc.connect(Viz.an);
+      st.getAudioTracks()[0].onended=()=>{this.stop();this.ui()};
+      this.mode='tab';toast('Visualizer is following the shared audio');
+    }catch(e){if(!e||e.name!=='NotAllowedError')toast('Could not capture audio')}
+    this.ui();
+  },
+  open(){
+    const l=(S.musicLink||'').trim();
+    if(!l){toast('Add your music app link first');return}
+    try{window.open(/^[a-z][a-z0-9+.-]*:/i.test(l)?l:'https://'+l,'_blank','noopener')}catch(e){location.href=l}
+  },
+  ui(){if(typeof cur!=='undefined'&&cur==='edit')render(true)}
+};
+function musicCard(){
+  const m=Music.mode,t=Music.list[Music.idx];
+  const canTab=!!(navigator.mediaDevices&&navigator.mediaDevices.getDisplayMedia)&&!/Android|iPhone|iPad/i.test(navigator.userAgent);
+  const st=m==='files'&&t?`Playing from your files: <b>${esc(t.name)}</b> (${Music.idx+1} of ${Music.list.length})`:m==='mic'?'Listening through the microphone. The ring follows whatever music is playing nearby.':m==='tab'?'Following the audio of the tab you shared.':'The ring uses its built-in groove until music is connected.';
+  return `<section class="card"><div class="eyebrow" style="margin-bottom:8px">Music &amp; visualizer</div>
+   <p class="sm mu">Make the ring in the header dance to your music. Pick whichever way fits how you listen.</p>
+   <p class="sm" style="margin-top:10px">${st}</p>
+   <div class="fld" style="margin-top:12px"><label>1. Play music files here</label>
+    <div class="row2" style="flex-wrap:wrap"><button class="btn sm" data-act="mpick">Choose songs</button><input type="file" accept="audio/*" multiple data-f="musicfiles" hidden>
+    ${Music.list.length?`<button class="btn sm ghost" data-act="mprev" aria-label="Previous">Prev</button><button class="btn sm" data-act="mplay">${Music.playing?'Pause':'Play'}</button><button class="btn sm ghost" data-act="mnext" aria-label="Next">Next</button>`:''}</div>
+    <p class="sm mu" style="margin-top:6px">Exact, real-time reaction. Files stay on your device.</p></div>
+   <div class="fld" style="margin-top:12px"><label>2. Follow another app (LastWave, Spotify, anything)</label>
+    <div class="row2" style="flex-wrap:wrap"><button class="btn sm ${m==='mic'?'':'ghost'}" data-act="mmic">${m==='mic'?'Stop listening':'Listen with microphone'}</button></div>
+    <p class="sm mu" style="margin-top:6px">Phones cannot share another app's audio, so the ring listens to the sound through the microphone. Play music on the speaker with the volume up. It works best in a quiet room. Nothing is recorded or sent anywhere.</p></div>
+   ${canTab?`<div class="fld" style="margin-top:12px"><label>3. Capture a browser tab (desktop)</label>
+    <div class="row2" style="flex-wrap:wrap"><button class="btn sm ${m==='tab'?'':'ghost'}" data-act="mtab">${m==='tab'?'Stop capture':'Capture tab audio'}</button></div>
+    <p class="sm mu" style="margin-top:6px">Choose the music tab and tick "Share tab audio".</p></div>`:''}
+   <div class="fld" style="margin-top:12px"><label>Your music app link</label>
+    <input data-f="musiclink" value="${esc(S.musicLink||'')}" placeholder="Paste a link to your music app or web player" autocomplete="off" inputmode="url">
+    <div class="row2" style="margin-top:8px"><button class="btn sm" data-act="mopen">Open music app</button>${m!=='off'?`<button class="btn sm ghost" data-act="mstop">Stop</button>`:''}</div></div></section>`;
 }
 function notifCard(){
   const p=Notif.perm(),on=S.notify&&p==='granted';
@@ -1526,6 +1639,14 @@ function act(t){
     case 'water':{const k=iso(vd),add=+t.dataset.ml,was=S.water[k]||0,v=Math.max(0,was+add);S.water[k]=v;if(add>0){buzz();if(was<S.waterGoal&&v>=S.waterGoal)toast('Water goal reached')}save();drawWater();break}
     case 'notif':Notif.ask().then(()=>render(true));break;
     case 'notiftest':Notif.test();break;
+    case 'mpick':{const i=document.querySelector('[data-f=musicfiles]');if(i)i.click();break}
+    case 'mplay':Music.toggle();break;
+    case 'mnext':Music.next();break;
+    case 'mprev':Music.prev();break;
+    case 'mmic':Music.mic();break;
+    case 'mtab':Music.tab();break;
+    case 'mopen':Music.open();break;
+    case 'mstop':Music.stop();render(true);break;
     case 'notifoff':S.notify=false;save();render(true);break;
     case 'mtop':mTop=t.dataset.k;render(true);break;
     case 'msub':mSub=t.dataset.k;render(true);break;
@@ -1632,6 +1753,8 @@ function onField(el){
     case 'mfilter':mFilter=v;render(true);break;
     case 'restdur':S.restSec=+v||90;break;
     case 'alertsel':S.alert[k]=v;break;
+    case 'musicfiles':Music.files(el.files);try{el.value=''}catch(e){}break;
+    case 'musiclink':S.musicLink=v.trim();break;
     case 'classlead':S.classLead=+v||30;Notif.plan();break;
     case 'alertlead':S.alert.lead=+v;break;
     case 'alertvol':S.alert.vol=+v;break;
