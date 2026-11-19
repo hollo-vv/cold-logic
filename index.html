@@ -642,7 +642,7 @@ function defaults(){
   ];
   return {
     v:1,first:iso(new Date()),name:'',pic:null,xp:0,vol:.5,focusMin:25,
-    water:{},waterGoal:3000,notes:{},mat:{items:[],iq:[]},bg:{},custom:{},pomo:{focus:25,short:5,long:15,every:4,tick:true,cycle:0,done:{},bar:'wave'},notify:false,haptic:{on:true,level:'medium'},sfx:{on:true,vol:.7},alert:{on:false,lead:5,habit:'chime',wk:'digital',vol:.8},ovr:{},restSec:90,_u:0,
+    water:{},waterGoal:3000,notes:{},mat:{items:[],iq:[]},bg:{},custom:{},pomo:{focus:25,short:5,long:15,every:4,tick:true,cycle:0,done:{},bar:'wave'},notify:false,haptic:{on:true,level:'medium'},sfx:{on:true,vol:.7},alert:{on:false,lead:5,habit:'chime',wk:'digital',vol:.8},ovr:{},restSec:90,classLead:30,_u:0,
     done:{},hist:{},extras:{},fuel:{},fuelGoal:{kcal:2500,protein:120},
     courses:[
       {c:'26SC1203E',n:'Data Structures and Algorithms (DSA)'},
@@ -672,6 +672,7 @@ function fixup(){
   if(!Array.isArray(S.exams))S.exams=[];
   S.haptic=Object.assign({on:true,level:'medium'},S.haptic||{});S.sfx=Object.assign({on:true,vol:.7},S.sfx||{});
   if(!S.restSec)S.restSec=90;
+  if(!S.classLead)S.classLead=30;
   S.alert=Object.assign({on:false,lead:5,habit:'chime',wk:'digital',vol:.8},S.alert||{});
   if(!S.ovr||typeof S.ovr!=='object')S.ovr={};
   if(typeof S._u!=='number')S._u=0;
@@ -699,6 +700,7 @@ function flush(){
     if(!Sync.applying&&j!==Sync.lastJ){S._u=Date.now();Sync.lastJ=j;Sync.dirty()}
     p._u=S._u;
     localStorage.setItem(KEY,JSON.stringify(p));
+    if(typeof Notif!=='undefined')Notif.later();
   }catch(e){}
 }
 const HAP={light:[10],medium:[26],strong:[55,28,55]};
@@ -1106,12 +1108,20 @@ function alertCard(){
 }
 function notifCard(){
   const p=Notif.perm(),on=S.notify&&p==='granted';
-  let txt,btns='';
-  if(p==='unsupported')txt='This browser does not support notifications.';
+  let txt,btns='',diag='';
+  const row=(k,v)=>`<div class="setrow" style="padding:5px 0"><span class="sm mu">${k}</span><span class="sm">${v}</span></div>`;
+  if(p==='unsupported')txt='This browser does not support notifications. On iPhone, add the app to your Home Screen first (iOS 16.4 or newer).';
   else if(p==='denied')txt='Notifications are blocked. Allow them for this app in your browser or phone settings, then come back.';
-  else if(on){txt='On. You get a notification 30 minutes before each class with the subject and room. Phones can pause closed apps, so keep the app installed and allowed to run in the background.';btns=`<button class="btn sm ghost" data-act="notiftest">Send a test</button><button class="btn sm ghost" data-act="notifoff">Turn off</button>`}
-  else{txt='Get a notification 30 minutes before each class, showing the subject and room.';btns=`<button class="btn sm" data-act="notif">${ic('bell')}Turn on</button>`}
-  return `<section class="card"><div class="eyebrow" style="margin-bottom:8px">Class reminders</div><p class="sm mu">${txt}</p>${btns?`<div class="row2" style="margin-top:12px;flex-wrap:wrap">${btns}</div>`:''}</section>`;
+  else if(on){
+    txt='You get a reminder before each class with the subject, class type, room and any open submissions or notes for that subject. Submissions with a due date also remind you the evening before and that morning.';
+    btns=`<button class="btn sm" data-act="notiftest">Send a test</button><button class="btn sm ghost" data-act="notifoff">Turn off</button>`;
+    const nx=Notif.next(),bgTxt={native:'Scheduled on your phone',periodic:'Background sync (best effort)',trigger:'Scheduled by the browser',open:'Only while the app is open'}[Notif.bg]||'Only while the app is open';
+    diag=`<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--line)">${row('Notifications','Allowed')}${row('Installed on home screen',Notif.native()||Notif.standalone()?'Yes':'No')}${row('Delivery when closed',bgTxt)}${row('Next reminder',nx?esc(Notif.titleOf(nx))+' · '+new Date(nx.from).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'None soon')}</div>
+      <div class="fld" style="margin-top:12px"><label>Remind me before class</label><select data-f="classlead" aria-label="Class reminder lead time">${[10,15,20,30,45,60].map(v=>`<option value="${v}" ${Notif.lead()===v?'selected':''}>${v} minutes</option>`).join('')}</select></div>`;
+    if(Notif.bg==='open'&&!Notif.native())diag+=`<p class="sm mu" style="margin-top:10px">A website cannot wake a closed app on its own. For reminders while your phone is locked, install the app to your Home Screen, keep it allowed to run in the background, or use the Android app version. Reminders always fire while the app is open or running in the background.</p>`;
+  }
+  else{txt='Get a reminder before each class showing the subject, class type, room and any open submissions or notes for that subject.';btns=`<button class="btn sm" data-act="notif">${ic('bell')}Turn on</button>`}
+  return `<section class="card"><div class="eyebrow" style="margin-bottom:8px">Class &amp; submission reminders</div><p class="sm mu">${txt}</p>${btns?`<div class="row2" style="margin-top:12px;flex-wrap:wrap">${btns}</div>`:''}${diag}</section>`;
 }
 function vProfile(){
   const st=streakInfo(),done=Object.values(S.hist).filter(p=>p>=STREAK_PCT).length;
@@ -1542,7 +1552,7 @@ function act(t){
     case 'cledit':openClEdit(+t.dataset.wd,t.dataset.hrs.split(',').map(Number));break;
     case 'exedit':openExEdit(+t.dataset.i);break;
     case 'ovreset':delete S.ovr[iso(vd)];save();render(true);toast('Back to your weekly template');break;
-    case 'setalert':S.alert.on=!S.alert.on;save();render(true);Sfx.play(S.alert.on?'on':'off');if(S.alert.on)Notif.checkHabits();break;
+    case 'setalert':S.alert.on=!S.alert.on;save();render(true);Sfx.play(S.alert.on?'on':'off');if(S.alert.on)Notif.check();break;
     case 'alertplay':ac();AlertSnd.play(S.alert[t.dataset.k]);break;
     case 'alertrm':DB.del('alert:custom').catch(()=>{});try{localStorage.removeItem('coldlogic.alertname')}catch(e){}['habit','wk'].forEach(k=>{if(S.alert[k]==='custom')S.alert[k]='chime'});AlertSnd.hasCustom=false;save();render(true);toast('Removed');break;
     case 'pmode':Pomo.setMode(t.dataset.k);break;
@@ -1622,6 +1632,7 @@ function onField(el){
     case 'mfilter':mFilter=v;render(true);break;
     case 'restdur':S.restSec=+v||90;break;
     case 'alertsel':S.alert[k]=v;break;
+    case 'classlead':S.classLead=+v||30;Notif.plan();break;
     case 'alertlead':S.alert.lead=+v;break;
     case 'alertvol':S.alert.vol=+v;break;
     case 'sfxvol':S.sfx.vol=+v;break;
@@ -2000,35 +2011,93 @@ const AlertSnd={out:null,
 AlertSnd.refresh();
 /* ---------- class reminders ---------- */
 const Notif={
-  supported:'Notification' in window,
-  perm(){return this.supported?Notification.permission:'unsupported'},
+  supported:'Notification' in window,nperm:null,bg:'open',
+  native(){return !!(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.LocalNotifications)},
+  perm(){if(this.native())return this.nperm||'default';return this.supported?Notification.permission:'unsupported'},
+  standalone(){try{return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}catch(e){return false}},
   sent(){try{return JSON.parse(localStorage.getItem('coldlogic.sent')||'{}')}catch(e){return {}}},
   mark(k){
-    const s=this.sent(),keep=iso(addDays(new Date(),-3));
-    Object.keys(s).forEach(x=>{if(x.slice(0,10)<keep)delete s[x]});
-    s[k]=1;try{localStorage.setItem('coldlogic.sent',JSON.stringify(s))}catch(e){}
+    const s=this.sent(),keep=iso(addDays(new Date(),-4));
+    Object.keys(s).forEach(x=>{if(/^\d{4}-/.test(x)&&x.slice(0,10)<keep)delete s[x]});
+    s[k]=Date.now();try{localStorage.setItem('coldlogic.sent',JSON.stringify(s))}catch(e){}
+    try{navigator.serviceWorker&&navigator.serviceWorker.controller&&navigator.serviceWorker.controller.postMessage({type:'fired',key:k})}catch(e){}
   },
+  async refreshNative(){if(!this.native())return;try{const r=await Capacitor.Plugins.LocalNotifications.checkPermissions();this.nperm=r.display==='granted'?'granted':r.display==='denied'?'denied':'default'}catch(e){}},
   async ask(){
-    if(!this.supported){toast('Notifications are not supported on this device');return 'unsupported'}
-    let p=Notification.permission;
-    if(p==='default'){try{p=await Notification.requestPermission()}catch(e){}}
-    if(p==='granted'){S.notify=true;save();this.schedule();this.check();toast('Class reminders are on')}
-    else if(p==='denied')toast('Notifications are blocked in your browser settings');
+    if(this.native()){
+      try{const r=await Capacitor.Plugins.LocalNotifications.requestPermissions();this.nperm=r.display==='granted'?'granted':r.display==='denied'?'denied':'default'}catch(e){}
+    }else{
+      if(!this.supported){toast('Notifications are not supported on this device');return 'unsupported'}
+      if(Notification.permission==='default'){try{await Notification.requestPermission()}catch(e){}}
+    }
+    const p=this.perm();
+    if(p==='granted'){S.notify=true;save();this.plan();this.check();toast('Reminders are on')}
+    else if(p==='denied')toast('Notifications are blocked in your browser or phone settings');
     return p;
   },
+  lead(){return +S.classLead||30},
+  fmtDue(due){try{return new Date(due+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'})}catch(e){return due}},
+  noteLines(code){
+    return (S.notes[code]||[]).filter(n=>!n.done).slice(0,4).map(n=>`• ${n.type}${n.due?' (due '+this.fmtDue(n.due)+')':''}: ${n.text}`);
+  },
+  /* classes for a date: subject, type, room, section and the open notes / submissions for that subject */
   events(d){return withDate(d,()=>this.events0(d))},
   events0(d){
     const wd=d.getDay(),out=[];if(wd===0)return out;
     Object.keys(GROUPS).forEach(g=>entriesFor(wd,GROUPS[g]).forEach(x=>{
       const st=(S.hours[x.hrs[0]]||[])[0];if(!st)return;
       const [h,m]=st.split(':').map(Number),at=new Date(d);at.setHours(h,m,0,0);
-      out.push({key:iso(d)+'-'+g+'-'+x.hrs[0],at:at.getTime(),name:cname(x.c),room:x.r,time:fmtT(st)});
+      out.push({key:iso(d)+'-'+g+'-'+x.hrs[0],kind:'class',at:at.getTime(),name:cname(x.c),code:x.c,type:x.t,room:x.r,sec:x.s,time:fmtT(st),notes:this.noteLines(x.c)});
     }));
     return out;
   },
-  async show(title,body,tag,at){
-    const opt={body,tag,icon:'icons/icon-192.png',badge:'icons/icon-192.png',vibrate:[80,40,80],data:{url:'./#academics'}};
-    if(at)opt.showTrigger=new TimestampTrigger(at);
+  habitEvents(d){
+    return withDate(d,()=>{
+      if(d.getDay()===0)return [];
+      return routineSorted().filter(it=>(it.kind==='normal'||it.kind==='workout')&&it.s).map(it=>{
+        const [h,m]=it.s.split(':').map(Number),at=new Date(d);at.setHours(h,m,0,0);
+        return {key:'h-'+iso(d)+'-'+it.id,id:it.id,kind:it.kind==='workout'?'workout':'habit',at:at.getTime(),name:it.n,time:fmtT(it.s)};
+      });
+    });
+  },
+  /* submissions / homework with a due date: a heads-up the evening before and again that morning */
+  dueEvents(){
+    const out=[],now=Date.now();
+    Object.keys(S.notes).forEach(code=>(S.notes[code]||[]).forEach(n=>{
+      if(n.done||!n.due||!(n.type==='Submission'||n.type==='Homework'))return;
+      const d=new Date(n.due+'T00:00:00');if(isNaN(d))return;
+      const day=new Date(d);day.setHours(8,0,0,0);const eve=new Date(d);eve.setDate(eve.getDate()-1);eve.setHours(20,0,0,0);
+      const mk=(at,tag,when)=>({key:'d-'+n.id+'-'+tag,kind:'due',at:at.getTime(),from:at.getTime(),until:at.getTime()+8*3600e3,name:`${n.type} due ${when}`,body:`${cname(code)}: ${n.text}`,url:'./#academics'});
+      out.push(mk(eve,'eve','tomorrow'),mk(day,'day','today'));
+    }));
+    return out.filter(e=>e.until>now);
+  },
+  list(days){
+    const out=[],hl=(+S.alert.lead||0)*60000,done=S.done[iso(new Date())]||{};
+    for(let k=0;k<days;k++){
+      const d=addDays(new Date(),k);
+      this.events(d).forEach(e=>out.push(Object.assign(e,{from:e.at-this.lead()*60000,until:e.at+10*60000,url:'./#academics'})));
+      if(S.alert.on)this.habitEvents(d).forEach(e=>{if(k===0&&done[e.id])return;out.push(Object.assign(e,{from:e.at-hl,until:e.at+5*60000,url:'./#day'}))});
+    }
+    this.dueEvents().forEach(e=>out.push(e));
+    return out.sort((a,b)=>a.from-b.from);
+  },
+  titleOf(e){return e.name},
+  text(e,now){
+    const m=now==null?null:Math.round((e.at-now)/60000),when=m==null?'':(m>0?` (in ${m} min)`:' (now)');
+    if(e.kind==='class'){
+      const tn=TYPE_NAMES[e.type]?`${TYPE_NAMES[e.type]} (${e.type})`:(e.type||'');
+      return [`${tn?tn+' · ':''}Room ${e.room||'TBA'}${e.sec?' · Sec '+e.sec:''} · ${e.time}${when}`].concat(e.notes||[]).join('\n');
+    }
+    if(e.kind==='due')return e.body;
+    return `${e.kind==='workout'?'Work-out':'Starts'} ${e.time}${when}`;
+  },
+  async show(title,body,tag,at,url){
+    const opt={body,tag,renotify:true,icon:'icons/icon-192.png',badge:'icons/icon-192.png',vibrate:[80,40,80],data:{url:url||'./#academics'}};
+    if(this.native()){
+      try{await Capacitor.Plugins.LocalNotifications.schedule({notifications:[{id:this.hash(tag+Date.now()),title,body,schedule:{at:new Date(Date.now()+700)},extra:{url:opt.data.url}}]});return true}catch(e){return false}
+    }
+    if(at&&window.TimestampTrigger)opt.showTrigger=new TimestampTrigger(at);
     try{
       const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();
       if(reg&&reg.showNotification){await reg.showNotification(title,opt);return true}
@@ -2036,52 +2105,56 @@ const Notif={
     if(!at){try{new Notification(title,opt);return true}catch(e){}}
     return false;
   },
-  habitEvents(d){
-    return withDate(d,()=>{
-      if(d.getDay()===0)return [];
-      return routineSorted().filter(it=>(it.kind==='normal'||it.kind==='workout')&&it.s).map(it=>{
-        const [h,m]=it.s.split(':').map(Number),at=new Date(d);at.setHours(h,m,0,0);
-        return {key:'h-'+iso(d)+'-'+it.id,id:it.id,wk:it.kind==='workout',at:at.getTime(),name:it.n,time:fmtT(it.s)};
-      });
-    });
-  },
-  checkHabits(){
-    if(!S.alert.on)return;
-    const now=Date.now(),sent=this.sent(),lead=(+S.alert.lead||0)*60000,today=new Date(),done=S.done[iso(today)]||{};
-    this.habitEvents(today).forEach(e=>{
-      if(sent[e.key]||done[e.id]||now<e.at-lead||now>=e.at+5*60000)return;
-      this.mark(e.key);
-      const m=Math.round((e.at-now)/60000),txt=m>0?`${e.wk?'Work-out':'Starts'} ${e.time} (in ${m} min)`:`${e.wk?'Work-out time':'Starting now'}: ${e.time}`;
-      toast(e.name+' · '+txt);AlertSnd.play(e.wk?S.alert.wk:S.alert.habit);buzz();
-      if(S.notify&&this.perm()==='granted')this.show(e.name,txt,e.key);
-    });
-  },
+  hash(str){let h=0;for(let i=0;i<str.length;i++)h=(h*31+str.charCodeAt(i))|0;return Math.abs(h)%2147483000+1},
   check(){
-    this.checkHabits();
-    if(!S.notify||this.perm()!=='granted')return;
-    const now=Date.now(),sent=this.sent();
-    [new Date(),addDays(new Date(),1)].forEach(d=>this.events(d).forEach(e=>{
-      if(now>=e.at-30*60000&&now<e.at&&!sent[e.key]){
-        this.mark(e.key);const m=Math.max(1,Math.round((e.at-now)/60000));
-        this.show(e.name,`Room ${e.room||'TBA'} · starts ${e.time} (in ${m} min)`,e.key);
+    const now=Date.now(),sent=this.sent(),on=S.notify&&this.perm()==='granted';
+    this.list(2).forEach(e=>{
+      if(now<e.from||now>=e.until||sent[e.key])return;
+      if(e.kind==='class'&&!on&&!S.notify)return;
+      this.mark(e.key);
+      const txt=this.text(e,now),title=this.titleOf(e);
+      toast(title+' · '+txt.split('\n')[0]);
+      if(e.kind==='habit'||e.kind==='workout'){AlertSnd.play(e.kind==='workout'?S.alert.wk:S.alert.habit);buzz()}
+      if(on)this.show(title,txt,e.key,null,e.url);
+    });
+  },
+  later(){clearTimeout(this._pt);this._pt=setTimeout(()=>this.plan(),1500)},
+  /* Hands the upcoming reminders to whatever can deliver them while the app is closed:
+     the installed Android app (exact local notifications), Chrome's scheduled notifications,
+     or the service worker's background sync. A plain web page cannot wake itself. */
+  async plan(){
+    if(!S.notify&&!S.alert.on)return;
+    const list=this.list(this.native()?7:3);
+    if(this.native()){
+      if(!S.notify||this.perm()!=='granted')return;
+      this.bg='native';
+      const LN=Capacitor.Plugins.LocalNotifications,now=Date.now();
+      try{const p=await LN.getPending();if(p.notifications&&p.notifications.length)await LN.cancel({notifications:p.notifications})}catch(e){}
+      const items=list.filter(e=>e.from>now&&(e.kind!=='class'||S.notify)).slice(0,60).map(e=>({id:this.hash(e.key),title:this.titleOf(e),body:this.text(e,null),schedule:{at:new Date(e.from),allowWhileIdle:true},extra:{url:e.url}}));
+      if(items.length){try{await LN.schedule({notifications:items})}catch(e){}}
+      return;
+    }
+    if(!S.notify||this.perm()!=='granted'||!('serviceWorker' in navigator))return;
+    try{
+      const snap=list.filter(e=>(e.kind!=='class'||S.notify)).map(e=>({key:e.key,from:e.from,until:e.until,title:this.titleOf(e),body:this.text(e,null),url:e.url}));
+      const c=await caches.open('coldlogic-sched');await c.put('sched.json',new Response(JSON.stringify(snap)));
+      const reg=await navigator.serviceWorker.ready;this.bg='open';
+      if(reg.periodicSync){try{await reg.periodicSync.register('cl-remind',{minInterval:15*60*1000});this.bg='periodic'}catch(e){}}
+      if(window.TimestampTrigger&&'showTrigger' in Notification.prototype){
+        const now=Date.now();snap.forEach(e=>{if(e.from>now)this.show(e.title,e.body,e.key,e.from,e.url)});this.bg='trigger';
       }
-    }));
+    }catch(e){}
   },
-  schedule(){
-    /* Where the browser supports scheduled notifications, queue them so they can fire with the app closed. */
-    if(!S.notify||this.perm()!=='granted'||!window.TimestampTrigger||!('showTrigger' in Notification.prototype))return;
-    const now=Date.now();
-    [new Date(),addDays(new Date(),1)].forEach(d=>this.events(d).forEach(e=>{
-      const lead=e.at-30*60000;
-      if(lead>now)this.show(e.name,`Room ${e.room||'TBA'} · starts ${e.time} (in 30 min)`,e.key,lead);
-    }));
-  },
-  test(){
+  next(){const now=Date.now(),on=S.notify&&this.perm()==='granted';return this.list(3).find(e=>e.until>now&&(e.kind!=='class'||on))},
+  async test(){
     if(this.perm()!=='granted'){toast('Turn on reminders first');return}
-    const ev=this.events(new Date()).concat(this.events(addDays(new Date(),1)))[0];
-    this.show(ev?ev.name:'Sample class',ev?`Room ${ev.room||'TBA'} · starts ${ev.time} (test)`:'Room C309 · starts 9:20 AM (test)','test');
+    const ev=this.list(3).find(e=>e.kind==='class')||this.list(3).find(e=>e.kind==='due');
+    const title=ev?this.titleOf(ev):'Sample class',body=ev?this.text(ev,null)+'\n(test)':'Practical (P) · Room C309 · 9:20 AM\n• Submission (due Fri 20 Nov): Lab record\n(test)';
+    const ok=await this.show(title,body,'test',null,'./#academics');
+    toast(ok?'Test sent. Pull down your notifications to see it.':'Could not show it. Check this app’s notification settings in your phone.');
   }
 };
+Notif.refreshNative();
 
 /* ---------- custom backgrounds ---------- */
 const BG_SOLID=['#0b0b10','#101a2c','#1b1030','#0f2a24','#2a1215','#2b2410','#1f1f24','#12202e','#1a1a2e','#10261c','#2d1b2e','#0d1f3c'];
@@ -2363,9 +2436,9 @@ cur=VIEWS[start]?start:'day';
 Sync.init();
 render();
 Guard.init();
-Notif.check();Notif.schedule();
-setInterval(()=>Notif.check(),20000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){Notif.check();Notif.schedule();Sync.run()}});
+Notif.check();Notif.plan();
+setInterval(()=>Notif.check(),15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){Notif.check();Notif.plan();Sync.run()}});
 window.addEventListener('online',()=>Sync.run());
 document.addEventListener('focusout',()=>{if(Sync.needRender)setTimeout(()=>{const a=document.activeElement;if(!(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName))&&Sync.needRender){Sync.needRender=false;render(true)}},500)});
 if('serviceWorker' in navigator&&/^https?:/.test(location.protocol)&&!window.__STANDALONE__){

@@ -1,6 +1,7 @@
 /* COLD LOGIC service worker: offline support + notification clicks.
    Network first, so a new deploy shows up the next time the app opens online. */
-const CACHE = 'coldlogic-v15';
+const CACHE = 'coldlogic-v16';
+const SCHED = 'coldlogic-sched';   /* reminder snapshot written by the app, read here when the app is closed */
 const FILES = ['./', 'index.html', 'manifest.json', 'firebase-config.js',
   'assets/profile.jpg', 'assets/logo.png', 'assets/physique.jpg', 'assets/academics.jpg',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-180.png', 'sounds/sounds.json'];
@@ -13,7 +14,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== SCHED).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -37,4 +38,40 @@ self.addEventListener('notificationclick', e => {
     for (const c of list) { if ('focus' in c) return c.focus(); }
     return self.clients.openWindow(target);
   }));
+});
+
+/* Reminders while the app is closed: the app saves its upcoming reminders; Chrome's periodic background sync
+   wakes this worker now and then (best effort, it is the browser that decides when) and due ones are shown. */
+async function fireDue() {
+  try {
+    const c = await caches.open(SCHED);
+    const r = await c.match('sched.json');
+    if (!r) return;
+    const list = await r.json();
+    const fr = await c.match('fired.json');
+    const fired = fr ? await fr.json() : {};
+    const now = Date.now();
+    for (const e of list) {
+      if (now >= e.from && now < e.until && !fired[e.key]) {
+        fired[e.key] = now;
+        await self.registration.showNotification(e.title, {
+          body: e.body, tag: e.key, renotify: true,
+          icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+          vibrate: [80, 40, 80], data: { url: e.url || './' }
+        });
+      }
+    }
+    Object.keys(fired).forEach(k => { if (now - fired[k] > 3 * 864e5) delete fired[k]; });
+    await c.put('fired.json', new Response(JSON.stringify(fired)));
+  } catch (err) {}
+}
+self.addEventListener('periodicsync', e => { if (e.tag === 'cl-remind') e.waitUntil(fireDue()); });
+self.addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'fire-due') e.waitUntil(fireDue());
+  if (d.type === 'fired' && d.key) e.waitUntil((async () => {
+    const c = await caches.open(SCHED), fr = await c.match('fired.json');
+    const fired = fr ? await fr.json() : {}; fired[d.key] = Date.now();
+    await c.put('fired.json', new Response(JSON.stringify(fired)));
+  })());
 });
