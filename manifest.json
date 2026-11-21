@@ -9,7 +9,7 @@
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#09090d",
-  "theme_color": "#09090d",
+  "theme_color": "#000000",
   "lang": "en-IN",
   "dir": "ltr",
   "categories": ["productivity", "education", "health"],
